@@ -1,0 +1,236 @@
+#include <Wire.h>
+#include <Keypad.h>
+#include <Servo.h>
+#include <EEPROM.h>
+#include <LiquidCrystal_I2C.h>
+
+// Pin setup for push button
+int Button = 10;           // Push Button
+
+// Keypad setup
+const byte numRows = 4;         // Number of rows on the keypad
+const byte numCols = 4;         // Number of columns on the keypad
+
+char keymap[numRows][numCols] =
+{
+  {'1', '2', '3', 'A'},
+  {'4', '5', '6', 'B'},
+  {'7', '8', '9', 'C'},
+  {'*', '0', '#', 'D'}
+};
+
+char keypressed;                 // Variable to store pressed key
+char code[] = {'1', '1', '1', '1'}; // Default code, you can change it
+
+const byte codeLength = sizeof(code) / sizeof(code[0]); // Length of code array
+char check1[codeLength];  // Array to store the first new code
+char check2[codeLength];  // Array to store the second new code for confirmation
+
+short a = 0, i = 0, s = 0, j = 0; // Variables used for code comparison and navigation
+
+// Keypad pin configuration
+byte rowPins[numRows] = {2, 3, 4, 5}; // Rows 0 to 3
+byte colPins[numCols] = {6, 7, 8, 9}; // Columns 0 to 3
+
+// LCD setup
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Keypad object
+Keypad myKeypad = Keypad(makeKeymap(keymap), rowPins, colPins, numRows, numCols);
+
+// Servo setup
+Servo myservo;
+
+void setup()
+{
+  // Initialize LCD
+  lcd.init();                      // Initialize the LCD
+  lcd.backlight();                  // Turn on the backlight
+  lcd.setCursor(0, 0);
+  lcd.print("*ENTER THE CODE*");
+  lcd.setCursor(1 , 1);
+  lcd.print("For Candies");
+
+  // Initialize push button and servo
+  pinMode(Button, INPUT);
+  myservo.attach(11);
+  myservo.write(0);  // Initially set servo to 0 (locked position)
+
+  // Uncomment the following block for the first-time setup of code in EEPROM
+  /*
+  for(i = 0; i < codeLength; i++) {
+    EEPROM.get(i, code[i]);
+  }
+  */
+}
+
+void loop()
+{
+  keypressed = myKeypad.getKey();  // Constantly check for key presses
+  if (keypressed == '*') {          // '*' to open the lock
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("*ENTER THE CODE*");
+    ReadCode();                      // Get user input for the code
+    if (a == codeLength) {           // If the entered code is correct
+      OpenDoor();                    // Open lock if code is correct
+    } else {
+      lcd.clear();
+      lcd.setCursor(1, 0);
+      lcd.print("Try Again");
+      lcd.setCursor(4, 1);
+      lcd.print("Oopssssss");
+    }
+    delay(2000); // Wait for a while before returning to the main screen
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("*ENTER THE CODE*");
+    lcd.setCursor(1 , 1);
+    lcd.print("For CANDIES");
+  }
+
+  if (keypressed == '#') {         // '#' to change the code
+    ChangeCode();
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("*ENTER THE CODE*");
+    lcd.setCursor(1 , 1);
+    lcd.print("For Candies");
+  }
+
+  if (digitalRead(Button) == HIGH) {  // Push button to open lock
+    delay(50);  // Simple debounce delay
+    if (digitalRead(Button) == HIGH) {
+      myservo.write(0);  // Open the lock (set servo to 0)
+    }
+  }
+}
+
+void ReadCode() {  // Read code sequence
+  i = 0;
+  a = 0;
+  j = 0;
+
+  while (keypressed != 'A') {  // User must press 'A' to confirm the code
+    keypressed = myKeypad.getKey();
+    if (keypressed != NO_KEY && keypressed != 'A') {
+      lcd.setCursor(j, 1);
+      lcd.print("*");  // Display '*' for each key pressed
+      j++;
+      if (keypressed == code[i] && i < codeLength) {
+        a++;
+        i++;
+      } else {
+        a--;  // Decrease if the character is incorrect
+      }
+      delay(150);  // Debounce delay to avoid multiple key readings
+    }
+  }
+  keypressed = NO_KEY;  // Reset key pressed after confirmation
+}
+
+void ChangeCode() {  // Change the code sequence
+  lcd.clear();
+  lcd.print("Changing code");
+  delay(1000);
+  lcd.clear();
+  lcd.print("Enter old code");
+  ReadCode();  // Verify the old code first
+
+  if (a == codeLength) {  // If old code is correct
+    lcd.clear();
+    lcd.print("Changing code");
+    GetNewCode1();  // Get the new code
+    GetNewCode2();  // Confirm the new code
+
+    s = 0;
+    for (i = 0; i < codeLength; i++) {  // Compare the two new codes
+      if (check1[i] == check2[i]) {
+        s++;
+      }
+    }
+
+    if (s == codeLength) {  // If codes match
+      for (i = 0; i < codeLength; i++) {
+        code[i] = check2[i];  // Update the code
+        EEPROM.put(i, code[i]);  // Store the new code in EEPROM
+      }
+      lcd.clear();
+      lcd.print("Code Changed");
+      delay(2000);
+    } else {  // If codes do not match
+      lcd.clear();
+      lcd.print("Codes are not");
+      lcd.setCursor(0, 1);
+      lcd.print("matching !!");
+      delay(2000);
+    }
+  } else {  // If old code is incorrect
+    lcd.clear();
+    lcd.print("Wrong code");
+    delay(2000);
+  }
+}
+
+void GetNewCode1() {  // Enter the first new code
+  i = 0;
+  j = 0;
+  lcd.clear();
+  lcd.print("Enter new code");
+  lcd.setCursor(0, 1);
+  lcd.print("and press A");
+  delay(2000);
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print("and press A");
+
+  while (keypressed != 'A') {  // Wait for user to press 'A' to confirm
+    keypressed = myKeypad.getKey();
+    if (keypressed != NO_KEY && keypressed != 'A') {
+      lcd.setCursor(j, 0);
+      lcd.print("*");  // Show '*' for each key pressed
+      check1[i] = keypressed;  // Store key pressed in check1
+      i++;
+      j++;
+    }
+  }
+  keypressed = NO_KEY;  // Reset key pressed
+}
+
+void GetNewCode2() {  // Enter the second new code to confirm
+  i = 0;
+  j = 0;
+  lcd.clear();
+  lcd.print("Confirm code");
+  lcd.setCursor(0, 1);
+  lcd.print("and press A");
+  delay(3000);
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print("and press A");
+
+  while (keypressed != 'A') {
+    keypressed = myKeypad.getKey();
+    if (keypressed != NO_KEY && keypressed != 'A') {
+      lcd.setCursor(j, 0);
+      lcd.print("*");
+      check2[i] = keypressed;  // Store key pressed in check2
+      i++;
+      j++;
+    }
+  }
+  keypressed = NO_KEY;  // Reset key pressed
+}
+
+void OpenDoor() {  // Lock opening function
+  lcd.clear();
+  lcd.setCursor(1, 0);
+  lcd.print("Have Fun");
+  lcd.setCursor(4, 1);
+  lcd.print("Enjoy Candies");
+
+  myservo.write(90);  // Open the lock (set servo to 90 degrees)
+  delay(3000);        // Wait for 3 seconds to keep the lock open
+
+  myservo.write(0);   // Return the servo to thse initial position (0 degrees)
+}
